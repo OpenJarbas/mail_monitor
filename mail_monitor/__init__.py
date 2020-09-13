@@ -2,8 +2,10 @@ import imaplib
 import email
 import email.header
 import email.utils
-from time import sleep
+from time import sleep, mktime
 from threading import Thread, Event
+import html2text
+
 
 
 class EmailClient:
@@ -34,18 +36,21 @@ class EmailClient:
         M = imaplib.IMAP4_SSL(str(self.address), port=int(self.port))
         M.login(str(self.account), str(self.password))  # Login
         M.select(str(self.folder))
+
         rv, data = M.search(None, search_filter)  # Only get unseen/unread emails
         new_emails = []
         for num in data[0].split():
             rv, data = M.fetch(num, '(RFC822)')
+
             msg = email.message_from_bytes(data[0][1])
 
             from_email = email.utils.parseaddr(msg['From'])[1]
             subject = str(msg['Subject'])
             sender = str(msg['From'])
-            payload = msg.get_payload()
-            if isinstance(payload, list):
-                payload = [str(v) for v in payload]
+            payload = self.get_body(msg)
+
+            ts = email.utils.parsedate(msg['Received'].split("\n")[-1].strip())
+            ts = mktime(ts)
 
             is_in_whitelist = not whitelist or from_email in whitelist
 
@@ -60,6 +65,7 @@ class EmailClient:
             mail = {"sender": sender,
                     "email": mail,
                     "payload": payload,
+                    "ts": ts,
                     "subject": subject}
             if mark_as_seen:
                 M.store(num, "+FLAGS", '\\SEEN')
@@ -77,6 +83,17 @@ class EmailClient:
     def mark_all_read(self):
         self.list_new_emails(mark_as_seen=True)
 
+    @staticmethod
+    def get_body(msg):
+        payload = msg.get_payload()
+        if isinstance(payload, list):
+            payload = payload[-1]
+            payload = html2text.html2text(str(payload))
+            payload = [l for l in payload.split("\n") if
+                       not l.startswith("Content-Type:")]
+            payload = "\n".join(payload)
+        return payload.strip()
+
     def send(self, subject, email, body):
         raise NotImplementedError
 
@@ -88,11 +105,12 @@ class EmailMonitor(Thread):
     """
     def __init__(self, mail, password, address="imap.gmail.com", port=993,
                  folder="inbox", time_between_checks=30, whitelist=None,
-                 mark_as_seen = True):
+                 mark_as_seen = True, filter="(UNSEEN)"):
         super().__init__()
         self.mark_as_seen = mark_as_seen
         self.time_between_checks = time_between_checks
         self.whitelist = whitelist
+        self.filter = filter
         self.email = EmailClient(mail, password, address, port, folder)
         self.stop_event = Event()
 
@@ -100,10 +118,10 @@ class EmailMonitor(Thread):
         self.stop_event.clear()
         while not self.stop_event.is_set():
 
-            mails = self.email.list_new_emails(self.whitelist,
-                                               self.mark_as_seen)
+            mails = self.email.list_emails(self.whitelist,
+                                           self.mark_as_seen,
+                                           search_filter=self.filter)
             for mail in mails:
-                print(mail)
                 self.on_new_email(mail)
             sleep(self.time_between_checks)
 
