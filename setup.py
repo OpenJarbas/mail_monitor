@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='mail_monitor',
-    version='0.4',
+    version='0.5',
     packages=['mail_monitor'],
     url='https://github.com/OpenJarbas/mail_monitor',
     license='Apache',

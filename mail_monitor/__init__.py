@@ -2,7 +2,7 @@ import imaplib
 import email
 import email.header
 import email.utils
-from time import sleep, mktime
+from time import sleep, mktime, time
 from threading import Thread, Event
 import html2text
 
@@ -49,8 +49,16 @@ class EmailClient:
             sender = str(msg['From'])
             payload = self.get_body(msg)
 
-            ts = email.utils.parsedate(msg['Received'].split("\n")[-1].strip())
-            ts = mktime(ts)
+            try:
+                if msg.get("Date"):
+                    ts = email.utils.parsedate(msg['Date'])
+                    ts = mktime(ts)
+                else:
+                    ts = email.utils.parsedate(
+                        msg['Received'].split("\n")[-1].strip())
+                    ts = mktime(ts)
+            except:
+                ts = time()
 
             is_in_whitelist = not whitelist or from_email in whitelist
 
